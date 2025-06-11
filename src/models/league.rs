@@ -1,5 +1,30 @@
 use serde::{Deserialize, Serialize};
-use chrono::NaiveDateTime;
+use chrono::{NaiveDateTime, NaiveDate};
+
+// 添加解析HTML用的GameInfo结构体
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GameInfo {
+    pub game_id: i32,
+    pub played_date: NaiveDate,
+    pub registered: Option<NaiveDateTime>,
+    pub description: String,
+    pub processed: bool,
+    pub player_results: Vec<PlayerResult>,
+    pub season_num: i32,
+    pub table_num: i32,
+}
+
+// 添加PlayerResult结构体
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PlayerResult {
+    pub seat: String,
+    pub player_name: String,
+    pub score: f64,
+    pub position: i32,
+    pub uma: f64,
+    pub penalty: f64,
+    pub total: f64,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LeaguePlayer {
