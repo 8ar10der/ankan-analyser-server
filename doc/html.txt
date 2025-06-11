@@ -1,0 +1,88 @@
+<div class="wrapper" id="table" style="overflow-x:auto;">
+            <table class="table wrapper">
+                 <tbody class="table styled-table">
+                    <tr class="row header blue">
+                        <td class="cell param">Param</td>
+                        <td class="cell value">Value</td>
+                    </tr>
+                    <tr class="row">
+                        <td class="cell param">Game id</td>
+                        <td class="cell value">28</td>
+                    </tr>
+                    <tr class="row">
+                        <td class="cell param">played</td>
+                        <td clalss="cell value">2025-02-12</td>
+                    </tr>
+                    <tr class="row">
+                        <td class="cell param">registered</td>
+                        <td clalss="cell value">2025-02-12 23:28:40.256044549 UTC</td>
+                    </tr>
+                    <tr class="row">
+                        <td class="cell param">description</td>
+                        <td clalss="cell value">Season 0: Table 29</td>
+                    </tr>
+                    <tr class="row">
+                        <td class="cell param">processed</td>
+                        <td clalss="cell value">true</td>
+                    </tr>
+                    <tr class="row">
+                        <td class="cell param">penalties</td>
+                        <td class="cell value"></td>
+                    </tr>
+                 </tbody>
+            </table><table class="table wrapper">
+                <tbody class="table styled-table">
+                    <tr class="row header blue">
+                        <td class="cell wind">Seat</td>
+                        <td class="cell name">Player</td>
+                        <td class="cell score">Result</td>
+                        <td class="cell position">Position</td>
+                        <td class="cell uma">Uma</td>
+                        <td class="cell penalty">Penalty</td>
+                        <td class="cell total">Total</td>
+                    </tr><tr class="row">
+                        <td class="cell seat">[E]</td>
+                        <td hx-get="stats/Oskar R/" hx-swap="outerHTML" hx-target="#playerstats" class="cell name">Oskar R</td>
+                        <td class="cell score"> 28.1
+                        </td>
+                        <td class="cell position">1</td>
+                        <td class="cell uma"> 15.0</td>
+                        <td class="cell penalty">
+                              0.0
+                        </td>
+                        <td class="cell total"> 43.1</td>
+                    </tr><tr class="row">
+                        <td class="cell seat">[S]</td>
+                        <td hx-get="stats/Ryan Ren/" hx-swap="outerHTML" hx-target="#playerstats" class="cell name">Ryan Ren</td>
+                        <td class="cell score">-25.8
+                        </td>
+                        <td class="cell position">4</td>
+                        <td class="cell uma">-15.0</td>
+                        <td class="cell penalty">
+                              0.0
+                        </td>
+                        <td class="cell total">-40.8</td>
+                    </tr><tr class="row">
+                        <td class="cell seat">[W]</td>
+                        <td hx-get="stats/CJ🍅/" hx-swap="outerHTML" hx-target="#playerstats" class="cell name">CJ🍅</td>
+                        <td class="cell score">  8.9
+                        </td>
+                        <td class="cell position">2</td>
+                        <td class="cell uma">  5.0</td>
+                        <td class="cell penalty">
+                              0.0
+                        </td>
+                        <td class="cell total"> 13.9</td>
+                    </tr><tr class="row">
+                        <td class="cell seat">[N]</td>
+                        <td hx-get="stats/Max/" hx-swap="outerHTML" hx-target="#playerstats" class="cell name">Max</td>
+                        <td class="cell score">-11.2
+                        </td>
+                        <td class="cell position">3</td>
+                        <td class="cell uma"> -5.0</td>
+                        <td class="cell penalty">
+                              0.0
+                        </td>
+                        <td class="cell total">-16.2</td>
+                    </tr></tbody>
+            </table></div>
