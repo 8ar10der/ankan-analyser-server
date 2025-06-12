@@ -41,7 +41,7 @@ impl LeaguePlayer {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LeagueGame {
     pub game_time: Option<NaiveDateTime>,
     pub season_num: i32,
@@ -51,7 +51,7 @@ pub struct LeagueGame {
     pub e: i32,
     pub s: i32,
     pub w: i32,
-    pub n: Option<i32>,
+    pub n: i32,
 }
 
 impl LeagueGame {
@@ -64,7 +64,7 @@ impl LeagueGame {
         e: i32,
         s: i32,
         w: i32,
-        n: Option<i32>,
+        n: i32,
     ) -> Self {
         Self {
             game_time,

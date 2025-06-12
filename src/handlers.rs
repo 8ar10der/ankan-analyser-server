@@ -120,19 +120,14 @@ async fn force_sync(repo: LeagueRepository) -> Response {
                         let mut player_id_map = HashMap::new(); // 存储玩家名称到真实数据库ID的映射
 
                         // 首先尝试获取数据库中当前的最大玩家ID
-                        let existing_players = match repo.list_players().await {
-                            Ok(players) => players,
-                            Err(e) => {
-                                println!("获取现有玩家列表时出错: {}", e);
-                                vec![]
-                            }
-                        };
+                        let existing_players = repo.list_players().await.unwrap_or_else(|e| {
+                            println!("获取现有玩家列表时出错: {}", e);
+                            vec![]
+                        });
 
                         // 创建现有玩家名称到ID的映射
-                        let mut max_player_id = 0;
                         for player in &existing_players {
                             player_id_map.insert(player.name.clone(), player.id);
-                            max_player_id = std::cmp::max(max_player_id, player.id);
                         }
 
                         // 处理游戏中的每个玩家
@@ -146,12 +141,10 @@ async fn force_sync(repo: LeagueRepository) -> Response {
                             }
 
                             // 玩家不存在，创建新玩家，分配新ID
-                            max_player_id += 1;
-                            let new_player_id = max_player_id;
-                            let new_player = LeaguePlayer::new(new_player_id, player_name.clone());
 
+                            let new_player = LeaguePlayer::new(-1, player_name.clone());
                             match repo.create_player(&new_player).await {
-                                Ok(_) => {
+                                Ok(new_player_id) => {
                                     println!("创建新玩家: {} (ID: {})", player_name, new_player_id);
                                     player_id_map.insert(player_name.clone(), new_player_id);
                                 },
@@ -166,7 +159,7 @@ async fn force_sync(repo: LeagueRepository) -> Response {
                         let mut e_id = 0;
                         let mut s_id = 0;
                         let mut w_id = 0;
-                        let mut n_id = None;
+                        let mut n_id = 0;
 
                         for player_result in &game_info.player_results {
                             if let Some(&player_id) = player_id_map.get(&player_result.player_name) {
@@ -174,33 +167,41 @@ async fn force_sync(repo: LeagueRepository) -> Response {
                                     "[E]" => e_id = player_id,
                                     "[S]" => s_id = player_id,
                                     "[W]" => w_id = player_id,
-                                    "[N]" => n_id = Some(player_id),
+                                    "[N]" => n_id = player_id,
                                     _ => {}
                                 }
                             }
                         }
 
+                        // 创建对局信息对象
+                        let mut game = LeagueGame::new(
+                            game_info.registered,
+                            game_info.season_num,
+                            game_info.table_num,
+                            game_info.processed,
+                            game_info.game_id,
+                            e_id,
+                            s_id,
+                            w_id,
+                            n_id,
+                        );
+
                         // 首先检查是否已存在相同赛季和桌号的记录
                         let existing_game = repo.get_game_by_season_and_table(game_info.season_num, game_info.table_num).await;
 
-                        let mut game_exists = false;
-                        let mut existing_game_id = 0;
-
                         match existing_game {
-                            Ok(game) => {
+                            Ok(existing_game) => {
                                 // 已存在相同赛季和桌号的游戏，进行更新
-                                game_exists = true;
-                                existing_game_id = game.id;
                                 println!("发现相同赛季({})和桌号({})的游戏记录，ID: {}，将进行更新",
-                                         game_info.season_num, game_info.table_num, game.id);
+                                         game_info.season_num, game_info.table_num, existing_game.id);
 
                                 // 使用现有的游戏ID，但更新其他信息
-                                let updated_game = LeagueGame::new(
+                                game = LeagueGame::new(
                                     game_info.registered,
                                     game_info.season_num,
                                     game_info.table_num,
                                     game_info.processed,
-                                    game.id, // 保持原有ID不变
+                                    existing_game.id, // 保持原有ID不变
                                     e_id,
                                     s_id,
                                     w_id,
@@ -208,67 +209,9 @@ async fn force_sync(repo: LeagueRepository) -> Response {
                                 );
 
                                 // 更新游戏信息
-                                match repo.update_game(&updated_game).await {
+                                match repo.update_game(&game).await {
                                     Ok(_) => {
-                                        println!("游戏信息已更新: ID {}", updated_game.id);
-
-                                        // 先删除所有与此游戏相关的旧结果记录
-                                        match repo.delete_results_by_table_id(updated_game.id).await {
-                                            Ok(result) => {
-                                                println!("已删除 {} 条旧结果记录", result.rows_affected());
-                                            },
-                                            Err(e) => {
-                                                println!("删除旧结果记录时出错: {}", e);
-                                            }
-                                        }
-
-                                        // 步骤3：保存游戏结果，使用已获取的玩家ID和游戏ID
-                                        let mut result_saved = 0;
-                                        let max_result_id = match repo.get_max_result_id().await {
-                                            Ok(id) => id.unwrap_or(0),
-                                            Err(e) => {
-                                                println!("获取结果表最大ID时出错: {}", e);
-                                                0
-                                            }
-                                        };
-
-                                        println!("当前结果表最大ID: {}", max_result_id);
-                                        let mut result_counter = max_result_id + 1;
-
-                                        for player_result in &game_info.player_results {
-                                            if let Some(&player_id) = player_id_map.get(&player_result.player_name) {
-                                                // 创建结果对象，使用基于当前数据库最大ID的计数器
-                                                let result = LeagueResult::new(
-                                                    result_counter,
-                                                    updated_game.id, // 使用更新的游戏ID
-                                                    player_id,
-                                                    player_result.score,
-                                                    player_result.position,
-                                                    player_result.uma,
-                                                    player_result.penalty,
-                                                    player_result.total,
-                                                );
-
-                                                // 保存结果
-                                                match repo.create_result(&result).await {
-                                                    Ok(_) => {
-                                                        result_saved += 1;
-                                                        result_counter += 1;
-                                                        println!("成功保存结果: ID {} 玩家 {} (ID: {})", result.id, player_result.player_name, player_id);
-                                                    },
-                                                    Err(e) => {
-                                                        println!("保存结果时出错: 玩家 {} (ID: {}), 错误: {}", player_result.player_name, player_id, e);
-                                                    }
-                                                };
-                                            }
-                                        }
-
-                                        println!("为游戏ID {} 更新并保存了 {}/{} 条结果记录",
-                                                 updated_game.id, result_saved, game_info.player_results.len());
-
-                                        if result_saved > 0 {
-                                            saved_count += 1;
-                                        }
+                                        println!("游戏信息已更新: ID {}", game.id);
                                     },
                                     Err(e) => {
                                         println!("更新游戏时出错: {}", e);
@@ -277,73 +220,14 @@ async fn force_sync(repo: LeagueRepository) -> Response {
                             },
                             Err(_) => {
                                 // 不存在相同赛季和桌号的游戏，进行创建
-                                // 创建游戏对象
-                                let game = LeagueGame::new(
-                                    game_info.registered,
-                                    game_info.season_num,
-                                    game_info.table_num,
-                                    game_info.processed,
-                                    game_info.game_id,
-                                    e_id,
-                                    s_id,
-                                    w_id,
-                                    n_id,
-                                );
 
-                                // 保存游戏到数据库
+                                // 保存游戏到数据库并获取ID更新到game对象
                                 match repo.create_game(&game).await {
-                                    Ok(_) => {
-                                        println!("游戏保存成功: ID {}", game.id);
-
-                                        // 步骤3：保存游戏结果，使用已获取的玩家ID和游戏ID
-
-                                        // 获取当前结果表中的最大ID
-                                        let max_result_id = match repo.get_max_result_id().await {
-                                            Ok(id) => id.unwrap_or(0),
-                                            Err(e) => {
-                                                println!("获取结果表最大ID时出错: {}", e);
-                                                0
-                                            }
-                                        };
-
-                                        println!("当前结果表最大ID: {}", max_result_id);
-                                        let mut result_saved = 0;
-                                        let mut result_counter = max_result_id + 1;
-
-                                        for player_result in &game_info.player_results {
-                                            if let Some(&player_id) = player_id_map.get(&player_result.player_name) {
-                                                // 创建结果对象，使用基于当前数据库最大ID的计数器
-                                                let result = LeagueResult::new(
-                                                    result_counter,
-                                                    game.id,
-                                                    player_id,
-                                                    player_result.score,
-                                                    player_result.position,
-                                                    player_result.uma,
-                                                    player_result.penalty,
-                                                    player_result.total,
-                                                );
-
-                                                // 保存结果
-                                                match repo.create_result(&result).await {
-                                                    Ok(_) => {
-                                                        result_saved += 1;
-                                                        result_counter += 1;
-                                                        println!("成功保存结果: ID {} 玩家 {} (ID: {})", result.id, player_result.player_name, player_id);
-                                                    },
-                                                    Err(e) => {
-                                                        println!("保存结果时出错: 玩家 {} (ID: {}), 错误: {}", player_result.player_name, player_id, e);
-                                                    }
-                                                };
-                                            }
-                                        }
-
-                                        println!("为游戏ID {} 保存了 {}/{} 条结果记录",
-                                                 game.id, result_saved, game_info.player_results.len());
-
-                                        if result_saved > 0 {
-                                            saved_count += 1;
-                                        }
+                                    Ok(new_game_id) => {
+                                        println!("游戏保存成功: ID {}", new_game_id);
+                                        saved_count += 1; // 成功保存游戏记录
+                                        // 更新游戏ID
+                                        game.id = new_game_id;
                                     },
                                     Err(e) => {
                                         if e.to_string().contains("duplicate key") {
@@ -351,6 +235,87 @@ async fn force_sync(repo: LeagueRepository) -> Response {
                                         } else {
                                             println!("创建游戏时出错: {}", e);
                                         }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 步骤3：创建更新玩家成绩记录
+                        if game.id >= 0 {
+                            println!("开始处理游戏 ID {}，赛季 {}，桌号 {} 的玩家成绩",
+                                    game.id, game.season_num, game.table_num);
+
+                            // 处理四个座位的玩家成绩
+                            for result in &game_info.player_results {
+                                // 根据座位位置找到对应的玩家ID
+                                let player_id = match result.seat.as_str() {
+                                    "[E]" => game.e,
+                                    "[S]" => game.s,
+                                    "[W]" => game.w,
+                                    "[N]" => game.n,
+                                    _ => {
+                                        println!("无效的座位位置: {}", result.seat);
+                                        continue;
+                                    }
+                                };
+
+                                // 创建游戏成绩对象
+                                let game_result = LeagueResult::new(
+                                    0, // ID设为0，数据库会自动分配
+                                    game.id,
+                                    player_id,
+                                    result.score,
+                                    result.position,
+                                    result.uma,
+                                    result.penalty,
+                                    result.total
+                                );
+
+                                // 先检查是否已存在该玩家在该桌的成绩记录
+                                match repo.get_result_by_table_and_player(game.id, player_id).await {
+                                    Ok(existing_result) => {
+                                        // 已有记录，进行更新
+                                        let mut updated_result = existing_result;
+                                        updated_result.result = result.score;
+                                        updated_result.position = result.position;
+                                        updated_result.uma = result.uma;
+                                        updated_result.penalty = result.penalty;
+                                        updated_result.total = result.total;
+
+                                        match repo.update_result(&updated_result).await {
+                                            Ok(_) => {
+                                                println!("已更新玩家 {} 在桌号 {} 的成绩", player_id, game.id);
+                                            },
+                                            Err(e) => {
+                                                println!("更新玩家 {} 成绩时出错: {}", player_id, e);
+                                            }
+                                        }
+                                    },
+                                    Err(_) => {
+                                        // 没有找到记录，创建新记录
+                                        match repo.create_result(&game_result).await {
+                                            Ok(_) => {
+                                                println!("已保存玩家 {} 在桌号 {} 的成绩", player_id, game.id);
+                                            },
+                                            Err(e) => {
+                                                println!("保存玩家 {} 成绩时出错: {}", player_id, e);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 标记游戏为已处理状态
+                            if !game.processed {
+                                let mut processed_game = game.clone();
+                                processed_game.processed = true;
+
+                                match repo.update_game(&processed_game).await {
+                                    Ok(_) => {
+                                        println!("游戏 ID {} 已标记为处理完成", game.id);
+                                    },
+                                    Err(e) => {
+                                        println!("标记游戏 ID {} 为已处理状态时出错: {}", game.id, e);
                                     }
                                 }
                             }
@@ -377,7 +342,7 @@ async fn force_sync(repo: LeagueRepository) -> Response {
         id += 1;
 
         // 防止过快请求，添加小延迟
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
 
     // 同步完成，重置状态
@@ -385,7 +350,6 @@ async fn force_sync(repo: LeagueRepository) -> Response {
         let mut state = SYNC_STATE.lock().await;
         state.is_running = false;
     }
-
     println!("强制同步完成，成功请求数: {}，成功保存数: {}", success_count, saved_count);
     (StatusCode::OK, format!("强制同步触发成功，共处理{}个请求，成功保存{}条记录", success_count, saved_count)).into_response()
 }
@@ -513,68 +477,4 @@ fn parse_html_content(html: &str) -> Option<GameInfo> {
         season_num,
         table_num,
     })
-}
-
-// 添加函数将GameInfo转换为数据库实体对象
-fn convert_game_info_to_entities(game_info: &GameInfo) -> (LeagueGame, HashMap<String, i32>, Vec<LeagueResult>) {
-    // 创建玩家映射，用于存储玩家名称到ID的映射
-    let mut player_map = HashMap::new();
-    let mut result_counter = 1; // 用于生成结果ID
-
-    // 为每个玩家生成一个唯一ID（简单实现，实际应用中可能需要更复杂的逻辑）
-    for (i, player) in game_info.player_results.iter().enumerate() {
-        player_map.insert(player.player_name.clone(), (i + 1) as i32);
-    }
-
-    // 创建LeagueGame对象
-    let mut e_id = 0;
-    let mut s_id = 0;
-    let mut w_id = 0;
-    let mut n_id = None;
-
-    // 遍历玩家分配座位ID
-    for player in &game_info.player_results {
-        let player_id = player_map.get(&player.player_name).unwrap_or(&0);
-        match player.seat.as_str() {
-            "[E]" => e_id = *player_id,
-            "[S]" => s_id = *player_id,
-            "[W]" => w_id = *player_id,
-            "[N]" => n_id = Some(*player_id),
-            _ => {}
-        }
-    }
-
-    // 创建游戏对象
-    let game = LeagueGame::new(
-        game_info.registered,
-        game_info.season_num,
-        game_info.table_num,
-        game_info.processed,
-        game_info.game_id,
-        e_id,
-        s_id,
-        w_id,
-        n_id,
-    );
-
-    // 创建结果对象列表
-    let mut results = Vec::new();
-    for player in &game_info.player_results {
-        if let Some(&player_id) = player_map.get(&player.player_name) {
-            let result = LeagueResult::new(
-                result_counter,
-                game_info.game_id,
-                player_id,
-                player.score,
-                player.position,
-                player.uma,
-                player.penalty,
-                player.total,
-            );
-            results.push(result);
-            result_counter += 1;
-        }
-    }
-
-    (game, player_map, results)
 }

@@ -14,13 +14,12 @@ impl LeagueRepository {
     }
 
     // LeaguePlayer CRUD 操作
-    pub async fn create_player(&self, player: &LeaguePlayer) -> Result<PgQueryResult, Error> {
-        sqlx::query!(
-            "INSERT INTO meetup_league_player (id, name) VALUES ($1, $2)",
-            player.id,
-            player.name
-        )
-            .execute(&self.pool)
+    pub async fn create_player(&self, player: &LeaguePlayer) -> Result<i32, Error> {
+        sqlx::query_scalar!(
+        "INSERT INTO meetup_league_player (name) VALUES ($1) RETURNING id",
+        player.name
+    )
+            .fetch_one(&self.pool)
             .await
     }
 
@@ -68,22 +67,22 @@ impl LeagueRepository {
     }
 
     // LeagueGame CRUD 操作
-    pub async fn create_game(&self, game: &LeagueGame) -> Result<PgQueryResult, Error> {
-        sqlx::query!(
-            "INSERT INTO meetup_league_table (game_time, season_num, table_num, processed, id, e, s, w, n)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+pub async fn create_game(&self, game: &LeagueGame) -> Result<i32, Error> {
+            sqlx::query_scalar!(
+            "INSERT INTO meetup_league_table (game_time, season_num, table_num, processed, e, s, w, n)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             RETURNING id",
             game.game_time,
             game.season_num,
             game.table_num,
             game.processed,
-            game.id,
             game.e,
             game.s,
             game.w,
             game.n
         )
-            .execute(&self.pool)
-            .await
+                .fetch_one(&self.pool)
+                .await
     }
 
     pub async fn get_game(&self, id: i32) -> Result<LeagueGame, Error> {
@@ -146,18 +145,17 @@ impl LeagueRepository {
     // LeagueResult CRUD 操作
     pub async fn create_result(&self, result: &LeagueResult) -> Result<PgQueryResult, Error> {
         sqlx::query!(
-            "INSERT INTO meetup_league_result
-             (id, table_id, player_id, result, position, uma, penalty, total)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-            result.id,
-            result.table_id,
-            result.player_id,
-            result.result,
-            result.position,
-            result.uma,
-            result.penalty,
-            result.total
-        )
+        "INSERT INTO meetup_league_result
+         (table_id, player_id, result, position, uma, penalty, total)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        result.table_id,
+        result.player_id,
+        result.result,
+        result.position,
+        result.uma,
+        result.penalty,
+        result.total
+    )
             .execute(&self.pool)
             .await
     }
@@ -207,48 +205,29 @@ impl LeagueRepository {
             .await
     }
 
-    // 新增方法：获取结果表中最大ID
-    pub async fn get_max_result_id(&self) -> Result<Option<i32>, Error> {
-        let record = sqlx::query!(
-            "SELECT MAX(id) as max_id FROM meetup_league_result"
-        )
-            .fetch_one(&self.pool)
-            .await?;
-
-        Ok(record.max_id)
-    }
-
-    pub async fn get_results_by_table(&self, table_id: i32) -> Result<Vec<LeagueResult>, Error> {
+    // 添加通过桌子ID和玩家ID查询结果的方法
+    pub async fn get_result_by_table_and_player(&self, table_id: i32, player_id: i32) -> Result<LeagueResult, Error> {
         sqlx::query_as!(
             LeagueResult,
             "SELECT id, table_id, player_id, result, position, uma, penalty, total
-             FROM meetup_league_result WHERE table_id = $1",
-            table_id
-        )
-            .fetch_all(&self.pool)
-            .await
-    }
-
-    pub async fn get_results_by_player(&self, player_id: i32) -> Result<Vec<LeagueResult>, Error> {
-        sqlx::query_as!(
-            LeagueResult,
-            "SELECT id, table_id, player_id, result, position, uma, penalty, total
-             FROM meetup_league_result WHERE player_id = $1",
+             FROM meetup_league_result 
+             WHERE table_id = $1 AND player_id = $2",
+            table_id,
             player_id
         )
-            .fetch_all(&self.pool)
+            .fetch_one(&self.pool)
             .await
     }
 
-    // 添加通过赛季和桌号查询游戏的功能
     pub async fn get_game_by_season_and_table(&self, season_num: i32, table_num: i32) -> Result<LeagueGame, Error> {
         sqlx::query_as!(
-            LeagueGame,
-            "SELECT game_time, season_num, table_num, processed, id, e, s, w, n
-             FROM meetup_league_table WHERE season_num = $1 AND table_num = $2",
-            season_num,
-            table_num
-        )
+        LeagueGame,
+        "SELECT game_time, season_num, table_num, processed, id, e, s, w, n
+         FROM meetup_league_table
+         WHERE season_num = $1 AND table_num = $2",
+        season_num,
+        table_num
+    )
             .fetch_one(&self.pool)
             .await
     }
