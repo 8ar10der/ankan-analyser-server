@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Ankan Club Meetup League Data Viewer</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- ECharts -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <!-- Handlebars -->
+    <script src="https://cdn.jsdelivr.net/npm/handlebars@4.7.7/dist/handlebars.min.js"></script>
+</head>
+<body>
+<div class="container mt-5">
+    <h2 class="mb-4">Ankan Club Meetup League Data Viewer</h2>
+    <div class="mb-3">
+        <label for="seasonSelect" class="form-label">Select Season:</label>
+        <select id="seasonSelect" class="form-select"></select>
+    </div>
+    <div class="mb-3">
+        <label for="playerSelect" class="form-label">Select Player:</label>
+        <select id="playerSelect" class="form-select"></select>
+    </div>
+    <div id="chart" style="width: 100%; height: 400px;"></div>
+    <div class="mt-4">
+        <h5>Season Summary</h5>
+        <table class="table table-bordered" id="summaryTable">
+            <thead>
+                <tr>
+                    <th>Total Score</th>
+                    <th>Total Uma</th>
+                    <th>Total Penalty</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td id="sumScore">-</td>
+                    <td id="sumUma">-</td>
+                    <td id="sumPenalty">-</td>
+                    <td id="sumTotal">-</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="mt-4">
+        <h5>Best/Worst Opponent</h5>
+        <table class="table table-bordered" id="opponentTable">
+            <thead>
+                <tr>
+                    <th>Type</th>
+                    <th>Opponent</th>
+                    <th>Score</th>
+                    <th>Note</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Best Opponent</td>
+                    <td id="bestMate">-</td>
+                    <td id="bestMateScore">-</td>
+                    <td>Most points with this opponent</td>
+                </tr>
+                <tr>
+                    <td>Worst Opponent</td>
+                    <td id="worstMate">-</td>
+                    <td id="worstMateScore">-</td>
+                    <td>Least points with this opponent</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="alert alert-info mt-2" role="alert">
+        <b>About Best/Worst Opponent:</b><br>
+        The "Best/Worst Opponent" is calculated by accumulating your total points with each opponent across all games you played together in the current season. If you sit at the same table with someone multiple times, your points for each game are added up. The opponent with the highest accumulated total is your "Best Opponent", and the one with the lowest is your "Worst Opponent".
+    </div>
+</div>
+
+<!-- Handlebars Templates -->
+<script id="season-options-template" type="text/x-handlebars-template">
+    {{#each seasons}}
+        <option value="{{this}}">Season {{this}}</option>
+    {{/each}}
+</script>
+
+<script id="player-options-template" type="text/x-handlebars-template">
+    {{#each players}}
+        <option value="{{this}}">{{this}}</option>
+    {{/each}}
+</script>
+
+<script>
+// Fetch season list and render dropdown
+function loadSeasons() {
+    fetch('/seasons')
+        .then(res => res.json())
+        .then(seasons => {
+            const source = document.getElementById('season-options-template').innerHTML;
+            const template = Handlebars.compile(source);
+            document.getElementById('seasonSelect').innerHTML = template({seasons});
+            if (seasons.length > 0) {
+                loadPlayers(seasons[0]);
+            }
+        });
+}
+
+// Fetch player list and render dropdown (with season)
+function loadPlayers(seasonNum) {
+    fetch(`/players?season=${encodeURIComponent(seasonNum)}`)
+        .then(res => res.json())
+        .then(players => {
+            const source = document.getElementById('player-options-template').innerHTML;
+            const template = Handlebars.compile(source);
+            document.getElementById('playerSelect').innerHTML = template({players});
+            if (players.length > 0) {
+                loadPlayerMatches(players[0], seasonNum);
+            }
+        });
+}
+
+// Fetch player match data and render chart (with season)
+function loadPlayerMatches(playerName, seasonNum) {
+    // 获取该赛季所有比赛数据
+    fetch(`/player/${encodeURIComponent(playerName)}/matches?season=${encodeURIComponent(seasonNum)}`)
+        .then(res => res.json())
+        .then(data => {
+            // 额外获取该赛季所有比赛（不只该玩家参与的）
+            fetch(`/season/${encodeURIComponent(seasonNum)}/matches`)
+                .then(res2 => res2.json())
+                .then(allMatches => {
+                    renderChart(allMatches, playerName);
+                })
+                .catch(() => {
+                    // 如果没有该接口，回退到只用玩家数据
+                    renderChart(data, playerName);
+                });
+        });
+}
+
+// Render ECharts line chart
+function renderChart(data, playerName) {
+    const chartDom = document.getElementById('chart');
+    const myChart = echarts.init(chartDom);
+    // 收集所有唯一桌号并排序
+    const allTableNums = Array.from(new Set(data.map(g => g.table_num))).sort((a, b) => a - b);
+    const tableNums = allTableNums.map(num => num.toString());
+    // 为每个桌号查找该玩家的成绩，没有则为null
+    const totals = allTableNums.map(num => {
+        const g = data.find(g => g.table_num === num);
+        if (!g) return null;
+        const pr = g.player_results.find(pr => pr.player_name === playerName);
+        return pr ? pr.total : null;
+    });
+    const positions = allTableNums.map(num => {
+        const g = data.find(g => g.table_num === num);
+        if (!g) return null;
+        const pr = g.player_results.find(pr => pr.player_name === playerName);
+        return pr ? pr.position : null;
+    });
+    const option = {
+        title: { text: 'Match Performance Line Chart' },
+        tooltip: { trigger: 'axis' },
+        legend: { data: ['Total Score', 'Position'] },
+        xAxis: { type: 'category', data: tableNums, name: 'Table Number' },
+        yAxis: [
+            { type: 'value', name: 'Total Score' },
+            { type: 'value', name: 'Position', inverse: true, minInterval: 1 }
+        ],
+        dataZoom: [
+            { type: 'slider', xAxisIndex: 0, start: 0, end: 100 },
+            { type: 'inside', xAxisIndex: 0, start: 0, end: 100 }
+        ],
+        series: [
+            {
+                name: 'Total Score',
+                type: 'line',
+                data: totals,
+                yAxisIndex: 0,
+                connectNulls: false,
+                showSymbol: true,
+                symbol: 'circle',
+                sampling: 'none',
+            },
+            {
+                name: 'Position',
+                type: 'line',
+                data: positions,
+                yAxisIndex: 1,
+                connectNulls: false,
+                showSymbol: true,
+                symbol: 'circle',
+                sampling: 'none',
+            }
+        ]
+    };
+    myChart.setOption(option);
+    // 计算并渲染赛季汇总表格
+    renderSummaryTable(data, playerName);
+}
+
+function renderSummaryTable(data, playerName) {
+    let sumScore = 0, sumUma = 0, sumPenalty = 0, sumTotal = 0;
+    // 统计同桌玩家得分
+    const mateScores = {};
+    data.forEach(g => {
+        const pr = g.player_results.find(pr => pr.player_name === playerName);
+        if (pr) {
+            sumScore += pr.score || 0;
+            sumUma += pr.uma || 0;
+            sumPenalty += pr.penalty || 0;
+            sumTotal += pr.total || 0;
+            // 统计同桌玩家
+            g.player_results.forEach(other => {
+                if (other.player_name !== playerName) {
+                    if (!mateScores[other.player_name]) mateScores[other.player_name] = 0;
+                    mateScores[other.player_name] += pr.total || 0;
+                }
+            });
+        }
+    });
+    document.getElementById('sumScore').textContent = sumScore.toFixed(2);
+    document.getElementById('sumUma').textContent = sumUma.toFixed(2);
+    document.getElementById('sumPenalty').textContent = sumPenalty.toFixed(2);
+    document.getElementById('sumTotal').textContent = sumTotal.toFixed(2);
+    // 计算最佳/最差同桌
+    let bestMate = '-', worstMate = '-';
+    let bestMateScore = '-', worstMateScore = '-';
+    let maxScore = -Infinity, minScore = Infinity;
+    for (const [mate, score] of Object.entries(mateScores)) {
+        if (score > maxScore) { maxScore = score; bestMate = mate; bestMateScore = score.toFixed(2); }
+        if (score < minScore) { minScore = score; worstMate = mate; worstMateScore = score.toFixed(2); }
+    }
+    document.getElementById('bestMate').textContent = bestMate;
+    document.getElementById('worstMate').textContent = worstMate;
+    document.getElementById('bestMateScore').textContent = bestMateScore;
+    document.getElementById('worstMateScore').textContent = worstMateScore;
+}
+
+// Listen for dropdown changes
+window.onload = function() {
+    loadSeasons();
+    document.getElementById('seasonSelect').addEventListener('change', function() {
+        loadPlayers(this.value);
+    });
+    document.getElementById('playerSelect').addEventListener('change', function() {
+        const seasonNum = document.getElementById('seasonSelect').value;
+        loadPlayerMatches(this.value, seasonNum);
+    });
+};
+</script>
+</body>
+</html>
