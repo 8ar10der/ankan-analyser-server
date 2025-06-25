@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM rust:1.77 as builder
+FROM rustlang/rust:nightly as builder
 WORKDIR /app
 COPY . .
 RUN cargo build --release
@@ -12,4 +12,3 @@ COPY doc ./doc
 EXPOSE 8080
 ENV RUST_LOG=info
 CMD ["/app/ankan-meetup-analyser-server"]
-
