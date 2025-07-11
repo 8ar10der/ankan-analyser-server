@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT p.id, p.name FROM meetup_league_player p\n                JOIN meetup_league_result r ON p.id = r.player_id\n                JOIN meetup_league_table t ON r.table_id = t.id\n                WHERE t.season_num = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "e2e606e912899228ee021dc17dd04244400518bf3bff44cd15b1c55aa4ca495e"
+}

@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, table_id, player_id, result, position, uma, penalty, total\n             FROM meetup_league_result \n             WHERE table_id = $1 AND player_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "table_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "player_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "result",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 4,
+        "name": "position",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "uma",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 6,
+        "name": "penalty",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 7,
+        "name": "total",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "73b63f21ba26bb1c48fa303e705ee1c42a3c00324f849d7d60106f7e65e9fe94"
+}

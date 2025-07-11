@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE meetup_league_table SET\n             game_time = $1, season_num = $2, table_num = $3, processed = $4,\n             e = $5, s = $6, w = $7, n = $8\n             WHERE id = $9",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamp",
+        "Int4",
+        "Int4",
+        "Bool",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "06f0cbc878b1fe7e82f8a540b62c7bf19dd52738b961a1a0a706934fa8037872"
+}

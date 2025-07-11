@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE meetup_league_result\n             SET table_id = $1, player_id = $2, result = $3,\n             position = $4, uma = $5, penalty = $6, total = $7\n             WHERE id = $8",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4",
+        "Float8",
+        "Int4",
+        "Float8",
+        "Float8",
+        "Float8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "afe3112034371fcb1bec939fe26e2d4521ffe830093773d0121a8f40622769ae"
+}
