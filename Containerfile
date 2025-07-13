@@ -2,6 +2,7 @@
 FROM rustlang/rust:nightly as builder
 WORKDIR /app
 COPY . .
+ENV SQLX_OFFLINE=true
 RUN cargo build --release
 
 FROM debian:bookworm-slim
