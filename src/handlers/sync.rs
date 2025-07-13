@@ -115,9 +115,73 @@ async fn force_sync(repo: LeagueRepository) -> Response {
 
     // 获取现有玩家
     let existing_players = repo.list_players().await.unwrap_or_default();
-    let mut player_id_map = HashMap::new();
+
+    // 第一步：检查缺失的ID和不一致的姓名
+    println!("开始检查玩家数据一致性...");
+
+    // 构建现有玩家的ID到姓名映射
+    let mut existing_id_name_map = HashMap::new();
     for player in &existing_players {
-        player_id_map.insert(player.name.clone(), player.id);
+        existing_id_name_map.insert(player.id, player.name.clone());
+    }
+
+    let mut updated_players_count = 0;
+    let mut created_players_count = 0;
+
+    // 检查JSON中的每个玩家
+    for json_player in &data.collection.players {
+        let pid = json_player.pid as i32;
+        let json_name = &json_player.name;
+
+        if let Some(existing_name) = existing_id_name_map.get(&pid) {
+            // ID存在，检查姓名是否一致
+            if existing_name != json_name {
+                println!("⚠️  发现ID {} 的姓名不一致：", pid);
+                println!("   数据库中: '{}'", existing_name);
+                println!("   JSON中:   '{}'", json_name);
+                println!("   正在更新...");
+
+                let update_player = LeaguePlayer::new(pid, json_name.clone());
+                match repo.update_player(&update_player).await {
+                    Ok(_) => {
+                        println!("✅ 成功更新ID {} 的玩家姓名: '{}' -> '{}'", pid, existing_name, json_name);
+                        // 更新本地映射
+                        existing_id_name_map.insert(pid, json_name.clone());
+                        updated_players_count += 1;
+                    },
+                    Err(e) => {
+                        println!("❌ 更新玩家ID {} 姓名失败: {}", pid, e);
+                    }
+                }
+            } else {
+                println!("✓ ID {} 的玩家 '{}' 信息一致", pid, json_name);
+            }
+        } else {
+            // ID不存在，需要创建新玩家
+            println!("📝 发现缺失的玩家ID {}，姓名: {}，正在创建...", pid, json_name);
+            let new_player = LeaguePlayer::new(pid, json_name.clone());
+            match repo.create_player_with_id(&new_player).await {
+                Ok(created_id) => {
+                    println!("✅ 成功创建玩家: {} (ID: {})", json_name, created_id);
+                    existing_id_name_map.insert(pid, json_name.clone());
+                    created_players_count += 1;
+                },
+                Err(e) => {
+                    println!("❌ 创建玩家ID {} ({}) 失败: {}", pid, json_name, e);
+                }
+            }
+        }
+    }
+
+    println!("玩家数据一致性检查完成:");
+    println!("  - 更新了 {} 个玩家的姓名", updated_players_count);
+    println!("  - 创建了 {} 个新玩家", created_players_count);
+    println!("  - 总共检查了 {} 个玩家", data.collection.players.len());
+
+    // 构建姓名到ID的映射，用于后续的游戏处理
+    let mut player_id_map = HashMap::new();
+    for (id, name) in &existing_id_name_map {
+        player_id_map.insert(name.clone(), *id);
     }
 
     for game in &data.collection.games {
@@ -141,7 +205,7 @@ async fn force_sync(repo: LeagueRepository) -> Response {
                 total,
             });
         }
-        
+
         // 优化桌号提取逻辑，兼容多种描述格式，失败时用gid兜底
         let mut season_num = 0;
         let mut table_num = 0;
@@ -159,7 +223,7 @@ async fn force_sync(repo: LeagueRepository) -> Response {
             }
             table_num = game.gid as i32;
         }
-        
+
         // 创建GameInfo对象
         let game_info = GameInfo {
             game_id: game.gid as i32,
@@ -178,13 +242,63 @@ async fn force_sync(repo: LeagueRepository) -> Response {
             if player_id_map.contains_key(player_name) {
                 continue;
             }
-            let new_player = LeaguePlayer::new(-1, player_name.clone());
-            if let Ok(new_player_id) = repo.create_player(&new_player).await {
-                println!("创建新玩家: {} (ID: {})", player_name, new_player_id);
-                player_id_map.insert(player_name.clone(), new_player_id);
+
+            // 查找该玩家在JSON数据中的pid
+            let player_pid = data.collection.players.iter()
+                .find(|p| p.name == *player_name)
+                .map(|p| p.pid as i32)
+                .unwrap_or(-1);
+
+            if player_pid != -1 {
+                // 使用JSON中的pid作为数据库ID创建玩家
+                let new_player = LeaguePlayer::new(player_pid, player_name.clone());
+                match repo.create_player_with_id(&new_player).await {
+                    Ok(created_id) => {
+                        println!("创建新玩家: {} (ID: {}, 来自JSON pid: {})", player_name, created_id, player_pid);
+                        player_id_map.insert(player_name.clone(), player_pid);
+                    },
+                    Err(e) => {
+                        // 检查是否是ID冲突错误
+                        if e.to_string().contains("duplicate key") || e.to_string().contains("unique constraint") {
+                            println!("ID {} 已存在，更新该ID对应的玩家名字为: {}", player_pid, player_name);
+                            // ID冲突时，更新已存在ID的玩家名字
+                            let update_player = LeaguePlayer::new(player_pid, player_name.clone());
+                            match repo.update_player(&update_player).await {
+                                Ok(_) => {
+                                    println!("成功更新ID {} 的玩家名字为: {}", player_pid, player_name);
+                                    player_id_map.insert(player_name.clone(), player_pid);
+                                },
+                                Err(update_e) => {
+                                    println!("更新玩家 {} (ID: {}) 失败: {}，尝试自动分配ID", player_name, player_pid, update_e);
+                                    // 如果更新也失败，则使用自动分配ID的方式
+                                    let fallback_player = LeaguePlayer::new(-1, player_name.clone());
+                                    if let Ok(new_player_id) = repo.create_player(&fallback_player).await {
+                                        println!("创建新玩家 {} 成功 (自动分配ID: {})", player_name, new_player_id);
+                                        player_id_map.insert(player_name.clone(), new_player_id);
+                                    }
+                                }
+                            }
+                        } else {
+                            println!("使用指定ID创建玩家 {} 失败: {}，尝试自动分配ID", player_name, e);
+                            // 其他错误，使用自动分配ID的方式
+                            let fallback_player = LeaguePlayer::new(-1, player_name.clone());
+                            if let Ok(new_player_id) = repo.create_player(&fallback_player).await {
+                                println!("创建新玩家 {} 成功 (自动分配ID: {})", player_name, new_player_id);
+                                player_id_map.insert(player_name.clone(), new_player_id);
+                            }
+                        }
+                    }
+                }
+            } else {
+                println!("警告: 玩家 {} 在JSON数据中找不到对应的pid，使用自动分配ID", player_name);
+                let fallback_player = LeaguePlayer::new(-1, player_name.clone());
+                if let Ok(new_player_id) = repo.create_player(&fallback_player).await {
+                    println!("创建新玩家 {} 成功 (自动分配ID: {})", player_name, new_player_id);
+                    player_id_map.insert(player_name.clone(), new_player_id);
+                }
             }
         }
-        
+
         // 步骤2：创建/更新游戏记录，使用已获取的玩家ID
         let mut e_id = 0;
         let mut s_id = 0;
@@ -203,7 +317,7 @@ async fn force_sync(repo: LeagueRepository) -> Response {
                 }
             }
         }
-        
+
         let mut game_db = LeagueGame::new(
             game_info.registered,
             game_info.season_num,
@@ -215,7 +329,7 @@ async fn force_sync(repo: LeagueRepository) -> Response {
             w_id,
             n_id,
         );
-        
+
         let existing_game = repo.get_game_by_season_and_table(game_info.season_num, game_info.table_num).await;
         match existing_game {
             Ok(existing_game) => {
@@ -242,7 +356,7 @@ async fn force_sync(repo: LeagueRepository) -> Response {
                 }
             }
         }
-        
+
         // 步骤3：创建/更新玩家成绩
         if game_db.id >= 0 {
             for result in &game_info.player_results {
@@ -256,7 +370,7 @@ async fn force_sync(repo: LeagueRepository) -> Response {
                         _ => continue,
                     }
                 };
-                
+
                 let game_result = LeagueResult::new(
                     0,
                     game_db.id,
@@ -267,7 +381,7 @@ async fn force_sync(repo: LeagueRepository) -> Response {
                     result.penalty,
                     result.total
                 );
-                
+
                 match repo.get_result_by_table_and_player(game_db.id, player_id).await {
                     Ok(mut existing_result) => {
                         existing_result.result = result.score;
@@ -283,14 +397,14 @@ async fn force_sync(repo: LeagueRepository) -> Response {
                 }
             }
         }
-        
+
         success_count += 1;
         // 更新状态
         let mut state = SYNC_STATE.lock().await;
         state.current_id = game.gid;
         state.success_count = success_count;
     }
-    
+
     // 同步完成，重置状态
     {
         let mut state = SYNC_STATE.lock().await;
@@ -373,27 +487,27 @@ pub async fn dry_run_sync(State(repo): State<LeagueRepository>) -> Response {
             return (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response();
         }
     };
-    
+
     // 构建pid到玩家名映射
     let mut pid_name_map = HashMap::new();
     for p in &data.collection.players {
         pid_name_map.insert(p.pid, p.name.clone());
     }
-    
+
     // 获取现有玩家
     let existing_players = repo.list_players().await.unwrap_or_default();
     let mut existing_player_names = std::collections::HashSet::new();
     for player in &existing_players {
         existing_player_names.insert(player.name.clone());
     }
-    
+
     // 统计信息
     let mut all_players = std::collections::BTreeSet::new();
     let mut new_players = std::collections::BTreeSet::new();
     let mut games_info = Vec::new();
     let mut warnings = Vec::new();
     let mut season_stats = std::collections::HashMap::new();
-    
+
     for game in &data.collection.games {
         // 解析赛季和桌号
         let mut season_num = 0;
@@ -410,30 +524,30 @@ pub async fn dry_run_sync(State(repo): State<LeagueRepository>) -> Response {
             }
             table_num = game.gid as i32;
         }
-        
+
         // 统计赛季信息
         *season_stats.entry(season_num).or_insert(0) += 1;
-        
+
         // 分析玩家和座位
         let mut game_players = Vec::new();
         let mut seat_assignment = std::collections::HashMap::new();
-        
+
         for result in &game.results {
             let player_name = pid_name_map.get(&result.player).cloned().unwrap_or_else(|| {
                 warnings.push(format!("游戏 {} 中找不到玩家 ID {}", game.gid, result.player));
                 format!("Unknown_{}", result.player)
             });
-            
+
             all_players.insert(player_name.clone());
             if !existing_player_names.contains(&player_name) {
                 new_players.insert(player_name.clone());
             }
-            
+
             // 处理座位
             let seat = result.seat.trim_matches(|c| c == '[' || c == ']').to_uppercase();
             let normalized_seat = match seat.as_str() {
                 "E" | "EAST" => "东",
-                "S" | "SOUTH" => "南", 
+                "S" | "SOUTH" => "南",
                 "W" | "WEST" => "西",
                 "N" | "NORTH" => "北",
                 _ => {
@@ -441,12 +555,12 @@ pub async fn dry_run_sync(State(repo): State<LeagueRepository>) -> Response {
                     "未知"
                 }
             };
-            
+
             if seat_assignment.contains_key(normalized_seat) {
                 warnings.push(format!("游戏 {} 中座位 {} 被分配给多个玩家", game.gid, normalized_seat));
             }
             seat_assignment.insert(normalized_seat, player_name.clone());
-            
+
             game_players.push(serde_json::json!({
                 "name": player_name,
                 "seat": normalized_seat,
@@ -459,12 +573,12 @@ pub async fn dry_run_sync(State(repo): State<LeagueRepository>) -> Response {
                 "is_new_player": !existing_player_names.contains(&player_name)
             }));
         }
-        
+
         // 检查是否有4个玩家
         if game_players.len() != 4 {
             warnings.push(format!("游戏 {} 玩家数量不是4个: {}", game.gid, game_players.len()));
         }
-        
+
         // 检查是否所有座位都被占用
         let expected_seats = ["东", "南", "西", "北"];
         for seat in &expected_seats {
@@ -472,7 +586,7 @@ pub async fn dry_run_sync(State(repo): State<LeagueRepository>) -> Response {
                 warnings.push(format!("游戏 {} 缺少 {} 座位的玩家", game.gid, seat));
             }
         }
-        
+
         games_info.push(serde_json::json!({
             "gid": game.gid,
             "played": game.played,
@@ -483,7 +597,7 @@ pub async fn dry_run_sync(State(repo): State<LeagueRepository>) -> Response {
             "seat_assignment": seat_assignment
         }));
     }
-    
+
     let result = serde_json::json!({
         "summary": {
             "total_games": data.collection.games.len(),
@@ -506,6 +620,6 @@ pub async fn dry_run_sync(State(repo): State<LeagueRepository>) -> Response {
             "other_seasons": games_info.iter().filter(|g| g["season_num"] != 0 && g["season_num"] != 1).count()
         }
     });
-    
+
     (StatusCode::OK, axum::Json(result)).into_response()
 }

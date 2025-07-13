@@ -23,6 +23,23 @@ impl LeagueRepository {
             .await
     }
 
+    // 添加指定ID创建玩家的方法
+    pub async fn create_player_with_id(&self, player: &LeaguePlayer) -> Result<i32, Error> {
+        // 使用OVERRIDING SYSTEM VALUE插入指定ID
+        sqlx::query_scalar!(
+            r#"
+            INSERT INTO meetup_league_player (id, name)
+            OVERRIDING SYSTEM VALUE
+            VALUES ($1, $2)
+            RETURNING id
+            "#,
+            player.id,
+            player.name
+        )
+        .fetch_one(&self.pool)
+        .await
+    }
+
     pub async fn get_player(&self, id: i32) -> Result<LeaguePlayer, Error> {
         sqlx::query_as!(
             LeaguePlayer,
