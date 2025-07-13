@@ -2,6 +2,7 @@
 FROM rustlang/rust:nightly as builder
 WORKDIR /app
 COPY . .
+COPY .sqlx ./.sqlx
 ENV SQLX_OFFLINE=true
 RUN cargo build --release
 
@@ -13,7 +14,6 @@ RUN apt-get update \
 COPY --from=builder /app/target/release/ankan-meetup-analyser-server /app/ankan-meetup-analyser-server
 COPY static ./static
 COPY doc ./doc
-COPY .sqlx ./.sqlx
 EXPOSE 8080
 ENV RUST_LOG=info
 CMD ["/app/ankan-meetup-analyser-server"]
