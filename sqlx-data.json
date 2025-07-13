@@ -1,0 +1,25 @@
+{
+  "db": "PostgreSQL",
+  "2a58b7e6c37c1ef90ece2f9bb50d73d77cb4a7ec4a6c7b8f32c4bb0b8f11c4ac": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Text"
+        ]
+      }
+    },
+    "query": "INSERT INTO meetup_league_player (id, name) OVERRIDING SYSTEM VALUE VALUES ($1, $2) RETURNING id"
+  }
+}
+
